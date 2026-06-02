@@ -66,9 +66,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard window == nil else { return }
 
         let browsers = BrowserCatalog.installed()
+        let effectiveURL = url ?? pendingURL
         let view = PickerView(
-            url: url ?? pendingURL,
+            url: effectiveURL,
             browsers: browsers,
+            savedRule: RuleStore.rule(forHost: effectiveURL?.host),
             onOpen: { [weak self] browser, profile in self?.open(browser: browser, profile: profile) },
             onSetDefault: { completion in Launcher.setAsDefaultBrowser(completion: completion) }
         )
@@ -101,6 +103,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func open(browser: Browser, profile: Profile?) {
         if let url = pendingURL {
+            // Remember this choice for the host so it's pre-selected next time.
+            RuleStore.save(
+                DomainRule(bundleID: browser.bundleID, profileDirectory: profile?.directory),
+                forHost: url.host
+            )
             Launcher.open(url: url, browser: browser, profile: profile)
         }
         // Give the launch hand-off a beat to complete, then exit.

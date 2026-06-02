@@ -3,11 +3,14 @@ import SwiftUI
 struct PickerView: View {
     let url: URL?
     let browsers: [Browser]
+    let savedRule: DomainRule?
     let onOpen: (Browser, Profile?) -> Void
     let onSetDefault: (@escaping (Bool) -> Void) -> Void
 
     @State private var expanded: Browser.ID?
     @State private var defaultStatus: String?
+
+    private var host: String? { url?.host }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -17,6 +20,12 @@ struct PickerView: View {
                 ForEach(browsers) { browser in
                     browserBlock(browser)
                 }
+            }
+
+            if host != nil {
+                Text("Your choice is remembered for this site.")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
             }
 
             Divider()
@@ -40,6 +49,7 @@ struct PickerView: View {
         }
         .padding(20)
         .frame(width: 380)
+        .onAppear(perform: preselectSavedChoice)
     }
 
     private var header: some View {
@@ -61,6 +71,20 @@ struct PickerView: View {
         }
     }
 
+    // Auto-expand the browser that holds the remembered profile.
+    private func preselectSavedChoice() {
+        guard let saved = savedRule,
+              let browser = browsers.first(where: { $0.id == saved.bundleID }),
+              browser.supportsProfiles else { return }
+        expanded = browser.id
+    }
+
+    private func isSaved(_ browser: Browser, profile: Profile?) -> Bool {
+        guard let saved = savedRule else { return false }
+        return saved.bundleID == browser.bundleID
+            && saved.profileDirectory == profile?.directory
+    }
+
     @ViewBuilder
     private func browserBlock(_ browser: Browser) -> some View {
         VStack(spacing: 4) {
@@ -69,14 +93,16 @@ struct PickerView: View {
                 title: browser.name,
                 trailing: browser.supportsProfiles
                     ? Image(systemName: expanded == browser.id ? "chevron.down" : "chevron.right")
-                    : nil
+                    : nil,
+                // A profile-less browser (e.g. Safari) can itself be the default.
+                isPreferred: !browser.supportsProfiles && isSaved(browser, profile: nil)
             ) {
                 if browser.supportsProfiles {
                     withAnimation(.easeInOut(duration: 0.12)) {
                         expanded = (expanded == browser.id) ? nil : browser.id
                     }
                 } else {
-                    onOpen(browser, nil)
+                    choose(browser, nil)
                 }
             }
 
@@ -86,23 +112,30 @@ struct PickerView: View {
                         RowButton(
                             icon: Image(systemName: "person.crop.circle"),
                             title: profile.name,
-                            indent: true
+                            indent: true,
+                            isPreferred: isSaved(browser, profile: profile)
                         ) {
-                            onOpen(browser, profile)
+                            choose(browser, profile)
                         }
                     }
                 }
             }
         }
     }
+
+    private func choose(_ browser: Browser, _ profile: Profile?) {
+        onOpen(browser, profile)
+    }
 }
 
-/// A clickable row with hover highlight.
+/// A clickable row with hover highlight. The "preferred" row (the remembered
+/// choice) is tinted, badged, and bound to the Return key.
 private struct RowButton: View {
     let icon: Image
     let title: String
     var trailing: Image? = nil
     var indent: Bool = false
+    var isPreferred: Bool = false
     let action: () -> Void
 
     @State private var hovering = false
@@ -116,6 +149,11 @@ private struct RowButton: View {
                     .frame(width: indent ? 16 : 22, height: indent ? 16 : 22)
                 Text(title)
                     .font(indent ? .callout : .body)
+                if isPreferred {
+                    Image(systemName: "star.fill")
+                        .foregroundStyle(.yellow)
+                        .font(.caption2)
+                }
                 Spacer()
                 if let trailing {
                     trailing.foregroundStyle(.secondary).font(.caption)
@@ -127,11 +165,18 @@ private struct RowButton: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 7)
-                    .fill(hovering ? Color.accentColor.opacity(0.18) : Color.clear)
+                    .fill(backgroundColor)
             )
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .keyboardShortcut(isPreferred ? .defaultAction : nil)
         .onHover { hovering = $0 }
+    }
+
+    private var backgroundColor: Color {
+        if hovering { return Color.accentColor.opacity(0.18) }
+        if isPreferred { return Color.accentColor.opacity(0.10) }
+        return .clear
     }
 }
