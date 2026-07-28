@@ -72,20 +72,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             browsers: browsers,
             savedRule: RuleStore.rule(forHost: effectiveURL?.host),
             onOpen: { [weak self] browser, profile in self?.open(browser: browser, profile: profile) },
-            onSetDefault: { completion in Launcher.setAsDefaultBrowser(completion: completion) }
+            onSetDefault: { completion in Launcher.setAsDefaultBrowser(completion: completion) },
+            onContentSize: { [weak self] size in self?.resizeWindow(toContent: size) }
         )
 
+        // No constraint-driven auto-sizing: the picker measures itself and we
+        // resize the window explicitly (see resizeWindow). Constraint-based
+        // auto-sizing re-enters the layout pass and crashes intermittently.
         let hosting = NSHostingController(rootView: view)
-        hosting.sizingOptions = [.preferredContentSize]
+        hosting.sizingOptions = []
 
         let win = NSWindow(contentViewController: hosting)
-        win.styleMask = [.titled, .closable, .fullSizeContentView]
+        win.styleMask = [.titled, .closable]
         win.titleVisibility = .hidden
         win.titlebarAppearsTransparent = true
         win.title = "Select Browser"
         win.isMovableByWindowBackground = true
         win.isReleasedWhenClosed = false
         win.level = .floating
+        win.setContentSize(NSSize(width: 380, height: 320)) // initial; corrected on first measure
         win.center()
         window = win
 
@@ -99,6 +104,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ) { _ in NSApp.terminate(nil) }
 
         win.makeKeyAndOrderFront(nil)
+    }
+
+    /// Resize the window to fit measured content, anchored at its top-left.
+    /// Deferred to the next runloop tick so it never runs inside the SwiftUI
+    /// layout pass (which is what made constraint-based sizing crash).
+    private func resizeWindow(toContent size: CGSize) {
+        guard size.width > 0, size.height > 0 else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let win = self?.window else { return }
+            let target = win.frameRect(forContentRect: NSRect(origin: .zero, size: size)).size
+            let current = win.frame.size
+            guard abs(current.width - target.width) > 0.5
+                || abs(current.height - target.height) > 0.5 else { return }
+            let topLeftY = win.frame.maxY
+            var frame = win.frame
+            frame.size = target
+            frame.origin.y = topLeftY - target.height
+            win.setFrame(frame, display: true, animate: false)
+        }
     }
 
     private func open(browser: Browser, profile: Profile?) {

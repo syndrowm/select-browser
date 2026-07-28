@@ -6,6 +6,10 @@ struct PickerView: View {
     let savedRule: DomainRule?
     let onOpen: (Browser, Profile?) -> Void
     let onSetDefault: (@escaping (Bool) -> Void) -> Void
+    /// Reports the content's laid-out size so AppKit can size the window
+    /// explicitly (instead of via constraint-driven auto-sizing, which can
+    /// crash when the height changes during a layout pass).
+    var onContentSize: (CGSize) -> Void = { _ in }
 
     @State private var expanded: Browser.ID?
     @State private var defaultStatus: String?
@@ -49,6 +53,14 @@ struct PickerView: View {
         }
         .padding(20)
         .frame(width: 380)
+        .background(
+            GeometryReader { proxy in
+                Color.clear.preference(key: ContentSizeKey.self, value: proxy.size)
+            }
+        )
+        .onPreferenceChange(ContentSizeKey.self) { size in
+            onContentSize(size)
+        }
         .onAppear(perform: preselectSavedChoice)
     }
 
@@ -98,9 +110,7 @@ struct PickerView: View {
                 isPreferred: !browser.supportsProfiles && isSaved(browser, profile: nil)
             ) {
                 if browser.supportsProfiles {
-                    withAnimation(.easeInOut(duration: 0.12)) {
-                        expanded = (expanded == browser.id) ? nil : browser.id
-                    }
+                    expanded = (expanded == browser.id) ? nil : browser.id
                 } else {
                     choose(browser, nil)
                 }
@@ -125,6 +135,15 @@ struct PickerView: View {
 
     private func choose(_ browser: Browser, _ profile: Profile?) {
         onOpen(browser, profile)
+    }
+}
+
+/// Carries the picker's laid-out size up to AppKit for explicit window sizing.
+private struct ContentSizeKey: PreferenceKey {
+    static let defaultValue: CGSize = .zero
+    static func reduce(value: inout CGSize, nextValue: () -> CGSize) {
+        let next = nextValue()
+        if next != .zero { value = next }
     }
 }
 
